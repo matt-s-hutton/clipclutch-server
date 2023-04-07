@@ -32,21 +32,27 @@ class DownloadServ(BaseHTTPRequestHandler):
     def handleOptions(self, data):
         url = data['url']
         options = data['options']
+        format = options['convertFormat']
 
         file_uuid = str(uuid.uuid4())
-        path = f'{download_serv["download_path"]}{file_uuid}.{options["convertFormat"]}'
+        path = f'{download_serv["download_path"]}{file_uuid}.{format}'
 
         ydl_opts = {
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
-                'preferedformat': options['convertFormat']
+                'preferedformat': format
             }],
             'outtmpl': path,
             'noplaylist': True
         }
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        self.respond(200, 'success', {'path': path})
+        return_value = {
+            'path': path,
+            'format': format,
+            'media': 'audio' if format == 'mp3' else 'video'
+        }
+        self.respond(200, 'success', return_value)
 
     def respond(self, status_code, status, message):
         self.send_response(status_code)
