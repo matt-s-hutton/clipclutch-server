@@ -1,7 +1,14 @@
-download_serv = dict(
-    host = '0.0.0.0',
-    port = 8081,
-    path = '/api/requestdownload',
-    access_control_allow_origin = '*',
-    download_path = '/srv/dl/'
-)
+from pydantic import BaseSettings
+from os import cpu_count
+
+class Settings(BaseSettings):
+    host: str
+    port: int
+    api_path: str
+    download_path: str
+    workers: int = cpu_count()
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
