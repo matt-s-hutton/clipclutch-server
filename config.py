@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     port: int
     api_path: str
     download_path: str
+    allow_ips: str = '*'
     workers: int = cpu_count()
 
     class Config:

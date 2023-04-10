@@ -85,7 +85,8 @@ async def download(params: DownloadParameters):
     return_value = {
         'path': fspath(path),
         'format': target_format,
-        'media': 'audio' if target_format == 'mp3' else 'video'
+        'media': 'audio' if target_format == 'mp3' else 'video',
+        'thumbnail': thumbnail if options.getThumbnail else None
     }
 
     return {"message": return_value}
@@ -101,4 +102,4 @@ def set_format_string(target_format: str, video_formats: set) -> str:
     return video_format_string if target_format in video_formats else audio_format_string
 
 if __name__ == "__main__":
-    uvicorn.run("api:ccserv", host=settings.host, port=settings.port, workers=settings.workers, headers=[("server", "ccserv")])
+    uvicorn.run("api:ccserv", forwarded_allow_ips=settings.allow_ips, proxy_headers=True, host=settings.host, port=settings.port, workers=settings.workers, headers=[("server", "ccserv")])
