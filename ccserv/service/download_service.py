@@ -1,37 +1,22 @@
+from fastapi import HTTPException
 import youtube_dl
 import uuid
-from fastapi import FastAPI
-import uvicorn
 from pathlib import Path
 from os import fspath
+from ..model.download_parameters import DownloadParameters
+from ..model.download_response import DownloadResponse
+from ..model.supported_format import SupportedFormat
+from ..configuration.settings import settings
 
-from config import settings
-from downloadparameters import DownloadParameters
-from supportedformat import SupportedFormat
 
-ccserv = FastAPI()
-
-@ccserv.post(
-    settings.api_path,
-    description="This endpoint accepts JSON in the request body. "
-        "Despite being a POST endpoint, it is used for data retrieval. "
-        "This is because transmitting the JSON via GET is less maintainable. "
-        "The JSON object must have the following structure: "
-        "{"
-        "  'url': <string>, "
-        "  'options': {"
-        "    'convertFormat': <string>, "
-        "    'embedSubs': <bool>, "
-        "    'getThumbnail': <bool>"
-        "  }"
-        "}"
-)
-async def download(params: DownloadParameters):
+def download_service(params: DownloadParameters) -> DownloadResponse:
     video_formats = SupportedFormat.get_supported_video_formats()
     audio_formats = SupportedFormat.get_supported_audio_formats()
 
     url = params.url
     options = params.options
+
+    warning = None
 
     # Get info
     with youtube_dl.YoutubeDL({'quiet': True}) as ydl:
@@ -51,7 +36,6 @@ async def download(params: DownloadParameters):
         format_string = set_format_string(target_format, video_formats)
         ydl_opts.update({ 'format': format_string })
     # If not, for audio we download and re-encode, for video we return an error as it would take too long
-    # TODO: warn user that it will take a long time to re-encode the video and allow them to continue if they want
     else:
         if target_format in audio_formats:
             ydl_opts.update({
@@ -63,17 +47,23 @@ async def download(params: DownloadParameters):
                 }],
             })
         else:
-            return {"error": "Target format not available and cannot be converted to"}
+            other_formats = list(video_formats.intersection(available_formats))
+            if other_formats:
+                warning = (f'Video provided as {other_formats[0]} due to {target_format} '
+                           'being unavailable for download')
+                target_format = other_formats[0]
+            else:
+                raise HTTPException(status_code=500, detail=(f'{target_format} unavailable and other formats {available_formats} '
+                                                             'either not video or unsupported'))
 
     file_uuid = str(uuid.uuid4())
-    outtmpl = Path(f'{settings.download_path}{file_uuid}')
-    path = outtmpl.with_suffix(f'.{target_format}')
+    location_local = Path(f'{settings.download_location_local}/{file_uuid}')
+    location_remote = Path(f'{settings.download_location_remote}/{file_uuid}').with_suffix(f'.{target_format}')
 
     ydl_opts.update({
-        'outtmpl': fspath(outtmpl),
+        'outtmpl': fspath(location_local),
         'writesubtitles': options.embedSubs,
-        'noplaylist': True,
-        'progress_hooks': [hook]
+        'noplaylist': True
     })
     if options.embedSubs:
         ydl_opts['postprocessors'].append({ 'key': 'FFmpegEmbedSubtitle' })
@@ -82,24 +72,16 @@ async def download(params: DownloadParameters):
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
-    return_value = {
-        'path': fspath(path),
-        'format': target_format,
-        'media': 'audio' if target_format == 'mp3' else 'video',
-        'thumbnail': thumbnail if options.getThumbnail else None
-    }
-
-    return {"message": return_value}
-
-def hook(status: dict):
-    if status['status'] == 'downloading':
-        pass
+    return DownloadResponse(
+        path=fspath(location_remote),
+        format=target_format,
+        media='audio' if target_format in audio_formats else 'video',
+        thumbnail=thumbnail if options.getThumbnail else None,
+        warning=warning
+    )
 
 def set_format_string(target_format: str, video_formats: set) -> str:
     compatible_audio_format = 'm4a' if target_format == 'mp4' else 'webm'
     video_format_string = f'bestvideo[ext={target_format}]+bestaudio[ext={compatible_audio_format}]'
     audio_format_string =f'bestaudio[ext={target_format}]'
     return video_format_string if target_format in video_formats else audio_format_string
-
-if __name__ == "__main__":
-    uvicorn.run("api:ccserv", forwarded_allow_ips=settings.allow_ips, proxy_headers=True, host=settings.host, port=settings.port, workers=settings.workers, headers=[("server", "ccserv")])

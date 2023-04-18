@@ -1,6 +1,7 @@
 from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, validator
-from downloadoptions import DownloadOptions
+from .download_options import DownloadOptions
+
 
 class DownloadParameters(BaseModel):
     url: str = Field(..., description="URL of the video to download")
