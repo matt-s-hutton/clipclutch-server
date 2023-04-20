@@ -1,0 +1,6 @@
+aiosmtplib==2.0.1
+fastapi==0.95.1
+pydantic==1.10.7
+pydantic[dotenv]==1.10.7
+pydantic[email]==1.10.7
+uvicorn==0.21.1

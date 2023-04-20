@@ -1,6 +1,6 @@
 class SupportedFormat(object):
     _supported_audio_format = {'mp3', 'm4a'}
-    _supported_video_format = {'mp6'}
+    _supported_video_format = {'mp4', 'webm'}
 
     @classmethod
     def get_supported_audio_formats(cls) -> set:
