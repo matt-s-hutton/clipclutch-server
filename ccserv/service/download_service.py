@@ -1,8 +1,9 @@
+import datetime
 from fastapi import HTTPException
 import youtube_dl
 import uuid
 from pathlib import Path
-from os import fspath
+from os import fspath, utime
 from ..model.download_parameters import DownloadParameters
 from ..model.download_response import DownloadResponse
 from ..model.supported_format import SupportedFormat
@@ -39,11 +40,11 @@ def download_service(params: DownloadParameters) -> DownloadResponse:
     else:
         if target_format in audio_formats:
             ydl_opts.update({
+                'keepvideo': False,
                 'format': 'bestaudio/best',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': target_format,
-                    'preferredquality': '192',
                 }],
             })
         else:
@@ -56,8 +57,16 @@ def download_service(params: DownloadParameters) -> DownloadResponse:
                 raise HTTPException(status_code=500, detail=(f'{target_format} unavailable and other formats {available_formats} '
                                                              'either not video or unsupported'))
 
+
     file_uuid = str(uuid.uuid4())
-    location_local = Path(f'{settings.download_location_local}/{file_uuid}')
+    # For some reason the suffix is only appended to file with video formats, so we need to add it for audio
+    if target_format in audio_formats:
+        location_local = Path(f'{settings.download_location_local}/{file_uuid}').with_suffix(f'.{target_format}')
+        file_path = fspath(location_local)
+    else:
+        location_local = Path(f'{settings.download_location_local}/{file_uuid}')
+        file_path = fspath(location_local.with_suffix(f'.{target_format}'))
+
     location_remote = Path(f'{settings.download_location_remote}/{file_uuid}').with_suffix(f'.{target_format}')
 
     ydl_opts.update({
@@ -71,6 +80,10 @@ def download_service(params: DownloadParameters) -> DownloadResponse:
     # Download the video
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
+
+    # Explicitly set the mtime of download videos to now, don't rely on youtube-dl download to implement updatetime (--no-mtime)
+    now = datetime.datetime.now().timestamp()
+    utime(file_path, (now, now))
 
     return DownloadResponse(
         path=fspath(location_remote),
