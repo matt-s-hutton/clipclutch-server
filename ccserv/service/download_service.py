@@ -32,10 +32,18 @@ def download_service(params: DownloadParameters) -> DownloadResponse:
     # Check if target format is supported by the video
     target_format = options.convertFormat
 
+    file_uuid = str(uuid.uuid4())
+    location_local = Path(settings.download_location_local) / file_uuid
+    location_remote = (Path(settings.download_location_remote) / file_uuid).with_suffix(f'.{target_format}')
+
     # If the target format is already available remotely, we can just download it
     if target_format in available_formats:
         format_string = set_format_string(target_format, video_formats)
         ydl_opts.update({ 'format': format_string })
+        if target_format in audio_formats:
+            outtmpl = fspath(location_local.with_suffix(f'.{target_format}'))
+        else:
+            outtmpl = fspath(location_local)
     # If not, for audio we download and re-encode, for video we return an error as it would take too long
     else:
         if target_format in audio_formats:
@@ -47,30 +55,20 @@ def download_service(params: DownloadParameters) -> DownloadResponse:
                     'preferredcodec': target_format,
                 }],
             })
+            outtmpl = fspath(location_local) + '.' + '%(EXT)s'
         else:
             other_formats = list(video_formats.intersection(available_formats))
             if other_formats:
                 warning = (f'Video provided as {other_formats[0]} due to {target_format} '
                            'being unavailable for download')
                 target_format = other_formats[0]
+                outtmpl = fspath(location_local)
             else:
                 raise HTTPException(status_code=500, detail=(f'{target_format} unavailable and other formats {available_formats} '
                                                              'either not video or unsupported'))
 
-
-    file_uuid = str(uuid.uuid4())
-    # For some reason the suffix is only appended to file with video formats, so we need to add it for audio
-    if target_format in audio_formats:
-        location_local = Path(f'{settings.download_location_local}/{file_uuid}').with_suffix(f'.{target_format}')
-        file_path = fspath(location_local)
-    else:
-        location_local = Path(f'{settings.download_location_local}/{file_uuid}')
-        file_path = fspath(location_local.with_suffix(f'.{target_format}'))
-
-    location_remote = Path(f'{settings.download_location_remote}/{file_uuid}').with_suffix(f'.{target_format}')
-
     ydl_opts.update({
-        'outtmpl': fspath(location_local),
+        'outtmpl': outtmpl,
         'writesubtitles': options.embedSubs,
         'noplaylist': True
     })
@@ -83,6 +81,7 @@ def download_service(params: DownloadParameters) -> DownloadResponse:
 
     # Explicitly set the mtime of download videos to now, don't rely on youtube-dl download to implement updatetime (--no-mtime)
     now = datetime.datetime.now().timestamp()
+    file_path = fspath(location_local.with_suffix(f'.{target_format}'))
     utime(file_path, (now, now))
 
     return DownloadResponse(
